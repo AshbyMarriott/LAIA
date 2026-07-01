@@ -62,3 +62,4 @@ Thumbs.db
 
 # Editor (personal indexing preferences)
 .cursorindexingignore
+*.code-workspace
