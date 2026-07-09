@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: laia
+      POSTGRES_PASSWORD: laia
+      POSTGRES_DB: laia
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U laia -d laia"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No host port required for production-like use; expose for local debugging if needed.
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LAIA_API_KEY: ${LAIA_API_KEY:-dev-api-key-change-me}
+      DATABASE_URL: postgresql+asyncpg://laia:laia@postgres:5432/laia
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      LAIA_TIMEZONE: ${LAIA_TIMEZONE:-America/Chicago}
+      CONVERSATION_TTL_MINUTES: ${CONVERSATION_TTL_MINUTES:-15}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    # Intentionally no host ports — Ollama has no auth.
+    # GPU (Linux NVIDIA target):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  postgres_data:
+  ollama_data:
