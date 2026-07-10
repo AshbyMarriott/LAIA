@@ -69,6 +69,67 @@ async def test_create_asks_for_missing_time(session: AsyncSession, store: Conver
 
 
 @pytest.mark.asyncio
+async def test_create_missing_title_sets_pending_and_follow_up_creates(
+    session: AsyncSession, store: ConversationStore
+) -> None:
+    fake = FakeOllama(
+        [
+            classify(CommandName.CREATE_EVENT),
+            create_slots(
+                title=None,
+                date_expression="July 14 2026",
+                time_expression="2pm",
+                duration_minutes=60,
+            ),
+        ]
+    )
+    orch = Orchestrator(session, ollama=fake, store=store)  # type: ignore[arg-type]
+    first = await orch.handle(message="Create a dentist appointment next Tuesday at 2pm")
+    assert first.action is None
+    assert first.pending is not None
+    assert first.pending.type == "slot_clarification"
+    assert "call this event" in first.reply.lower()
+
+    # Title follow-up should not need another Ollama call.
+    second = await orch.handle(
+        message="Dentist Appointment",
+        conversation_id=first.conversation_id,
+    )
+    assert second.action is not None
+    assert second.action.command == "create_event"
+    assert "Dentist Appointment" in second.reply
+    assert second.pending is None
+
+
+@pytest.mark.asyncio
+async def test_create_missing_time_follow_up_without_llm(
+    session: AsyncSession, store: ConversationStore
+) -> None:
+    fake = FakeOllama(
+        [
+            classify(CommandName.CREATE_EVENT),
+            create_slots(
+                title="Dentist",
+                date_expression="July 14 2026",
+                time_expression=None,
+                all_day=False,
+                needs_clarification=True,
+                clarification_question="What time should I schedule that for?",
+            ),
+        ]
+    )
+    orch = Orchestrator(session, ollama=fake, store=store)  # type: ignore[arg-type]
+    first = await orch.handle(message="Schedule dentist on July 14")
+    assert first.pending is not None
+    assert first.pending.type == "slot_clarification"
+
+    second = await orch.handle(message="2pm", conversation_id=first.conversation_id)
+    assert second.action is not None
+    assert second.action.command == "create_event"
+    assert fake.responses == []
+
+
+@pytest.mark.asyncio
 async def test_search_events(session: AsyncSession, store: ConversationStore) -> None:
     cal = CalendarService(session)
     await cal.create_event(

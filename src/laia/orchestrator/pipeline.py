@@ -195,28 +195,39 @@ class Orchestrator:
             pending=pending,
         )
 
-    async def _create_event(self, state: ConversationState, message: str) -> ChatResponse:
-        slots = await self.ollama.structured(
-            system=prompts.CREATE_SLOTS_SYSTEM,
-            user=prompts.slots_user_prompt(message),
-            schema=CreateEventSlots,
+    def _ask_create_clarification(
+        self,
+        state: ConversationState,
+        slots: CreateEventSlots,
+        question: str,
+    ) -> ChatResponse:
+        self.store.set_pending(
+            state.conversation_id,
+            pending_type="slot_clarification",
+            command=CommandName.CREATE_EVENT.value,
+            pending_slots=slots.model_dump(),
         )
-        if slots.needs_clarification:
-            self.store.set_pending(
-                state.conversation_id,
-                pending_type="slot_clarification",
-                command=CommandName.CREATE_EVENT.value,
-                pending_slots=slots.model_dump(),
-            )
-            question = slots.clarification_question or "What time should I schedule that for?"
-            return self._response(
-                state,
-                question,
-                pending=PendingState(type="slot_clarification", command="create_event", clarification_question=question),
-            )
+        return self._response(
+            state,
+            question,
+            pending=PendingState(
+                type="slot_clarification",
+                command="create_event",
+                clarification_question=question,
+            ),
+        )
 
+    async def _finalize_create_from_slots(
+        self,
+        state: ConversationState,
+        slots: CreateEventSlots,
+    ) -> ChatResponse:
         if not slots.title:
-            return self._response(state, "What should I call this event?")
+            return self._ask_create_clarification(
+                state,
+                slots,
+                "What should I call this event?",
+            )
 
         all_day = bool(slots.all_day)
         try:
@@ -231,18 +242,7 @@ class Orchestrator:
                 default_duration_minutes=self.settings.default_event_duration_minutes,
             )
         except DateResolutionError as exc:
-            self.store.set_pending(
-                state.conversation_id,
-                pending_type="slot_clarification",
-                command=CommandName.CREATE_EVENT.value,
-                pending_slots=slots.model_dump(),
-            )
-            question = str(exc)
-            return self._response(
-                state,
-                question,
-                pending=PendingState(type="slot_clarification", command="create_event", clarification_question=question),
-            )
+            return self._ask_create_clarification(state, slots, str(exc))
 
         event = await self.calendar.create_event(
             EventCreate(
@@ -261,6 +261,18 @@ class Orchestrator:
             _reply_created(event),
             action=ActionResult(command="create_event", result={"id": str(event.id)}),
         )
+
+    async def _create_event(self, state: ConversationState, message: str) -> ChatResponse:
+        slots = await self.ollama.structured(
+            system=prompts.CREATE_SLOTS_SYSTEM,
+            user=prompts.slots_user_prompt(message),
+            schema=CreateEventSlots,
+        )
+        if slots.needs_clarification:
+            question = slots.clarification_question or "What time should I schedule that for?"
+            return self._ask_create_clarification(state, slots, question)
+
+        return await self._finalize_create_from_slots(state, slots)
 
     async def _search_events(self, state: ConversationState, message: str) -> ChatResponse:
         slots = await self.ollama.structured(
@@ -667,6 +679,36 @@ class Orchestrator:
         # Treat the follow-up as completing the original create (MVP: create only).
         if state.command == CommandName.CREATE_EVENT.value:
             prior = CreateEventSlots.model_validate(state.pending_slots or {})
+            text = message.strip().strip('"').strip("'")
+
+            # If we asked for a title, accept the reply as the title without another LLM call.
+            # This keeps follow-ups working when the model is slow/unavailable.
+            if not prior.title and text:
+                merged = prior.model_dump()
+                merged["title"] = text
+                merged["needs_clarification"] = False
+                return await self._finalize_create_from_slots(
+                    state,
+                    CreateEventSlots.model_validate(merged),
+                )
+
+            # If we have a title/date but no time, accept a short time reply without another LLM call.
+            if (
+                prior.title
+                and prior.date_expression
+                and not prior.time_expression
+                and not prior.all_day
+                and text
+                and len(text) <= 40
+            ):
+                merged = prior.model_dump()
+                merged["time_expression"] = text
+                merged["needs_clarification"] = False
+                return await self._finalize_create_from_slots(
+                    state,
+                    CreateEventSlots.model_validate(merged),
+                )
+
             # Merge: if user only provides a time, keep prior date/title.
             follow = await self.ollama.structured(
                 system=prompts.CREATE_SLOTS_SYSTEM,
@@ -681,44 +723,9 @@ class Orchestrator:
                 if value is not None and value != "" and value is not False:
                     merged[key] = value
             merged["needs_clarification"] = False
-            self.store.clear_pending(state.conversation_id)
-            slots = CreateEventSlots.model_validate(merged)
-            if not slots.title:
-                return self._response(state, "What should I call this event?")
-            try:
-                bounds = resolve_event_bounds(
-                    date_expression=slots.date_expression,
-                    time_expression=slots.time_expression,
-                    end_date_expression=slots.end_date_expression,
-                    end_time_expression=slots.end_time_expression,
-                    duration_minutes=slots.duration_minutes,
-                    all_day=bool(slots.all_day),
-                    timezone=slots.timezone or self.settings.laia_timezone,
-                    default_duration_minutes=self.settings.default_event_duration_minutes,
-                )
-            except DateResolutionError as exc:
-                self.store.set_pending(
-                    state.conversation_id,
-                    pending_type="slot_clarification",
-                    command=CommandName.CREATE_EVENT.value,
-                    pending_slots=slots.model_dump(),
-                )
-                return self._response(state, str(exc))
-            event = await self.calendar.create_event(
-                EventCreate(
-                    title=slots.title,
-                    description=slots.description,
-                    location=slots.location,
-                    start_at=bounds.start_at,
-                    end_at=bounds.end_at,
-                    timezone=bounds.timezone,
-                    all_day=bounds.all_day,
-                )
-            )
-            return self._response(
+            return await self._finalize_create_from_slots(
                 state,
-                _reply_created(event),
-                action=ActionResult(command="create_event", result={"id": str(event.id)}),
+                CreateEventSlots.model_validate(merged),
             )
         # Fallback: clear and reprocess as a fresh message.
         self.store.clear_pending(state.conversation_id)
