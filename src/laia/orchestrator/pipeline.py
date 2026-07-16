@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -34,6 +34,7 @@ from laia.services.calendar import CalendarService, EventNotFoundError
 from laia.services.conversation import ConversationState, ConversationStore, get_conversation_store
 from laia.services.dates import (
     DateResolutionError,
+    ResolvedInterval,
     apply_relative_shift,
     is_all_day_phrase,
     resolve_event_bounds,
@@ -44,12 +45,128 @@ from laia.services.ollama import OllamaClient, OllamaError, get_ollama_client
 logger = logging.getLogger(__name__)
 
 
+def _format_day(day: date) -> str:
+    return f"{day.strftime('%B')} {day.day}"
+
+
+def _format_clock(moment: datetime) -> str:
+    hour = moment.strftime("%I").lstrip("0") or "12"
+    return f"{hour}:{moment.strftime('%M %p')}"
+
+
+def format_event_label(
+    *,
+    title: str,
+    start_at: datetime,
+    end_at: datetime,
+    timezone: str,
+    all_day: bool,
+) -> str:
+    """Render title plus start/end bounds for assistant replies and search lists."""
+    tz = ZoneInfo(timezone)
+    start = start_at.astimezone(tz) if start_at.tzinfo else start_at.replace(tzinfo=tz)
+    end = end_at.astimezone(tz) if end_at.tzinfo else end_at.replace(tzinfo=tz)
+
+    if all_day:
+        start_day = start.date()
+        # All-day end_at is an exclusive next-midnight boundary.
+        if end.time() == time.min:
+            end_day = end.date() - timedelta(days=1)
+        else:
+            end_day = end.date()
+        if end_day <= start_day:
+            return f"{title} - {_format_day(start_day)} (all day)"
+        return f"{title} - {_format_day(start_day)} – {_format_day(end_day)} (all day)"
+
+    start_part = f"{_format_day(start.date())}, {_format_clock(start)}"
+    if start.date() == end.date():
+        return f"{title} - {start_part} – {_format_clock(end)}"
+    end_part = f"{_format_day(end.date())}, {_format_clock(end)}"
+    return f"{title} - {start_part} – {end_part}"
+
+
 def _format_event_label(event: Event) -> str:
-    local = event.start_at.astimezone(ZoneInfo(event.timezone))
-    if event.all_day:
-        return f"{event.title} - {local.date().isoformat()} (all day)"
-    hour = local.strftime("%I").lstrip("0") or "12"
-    return f"{event.title} - {local.strftime('%B')} {local.day}, {hour}:{local.strftime('%M %p')}"
+    return format_event_label(
+        title=event.title,
+        start_at=event.start_at,
+        end_at=event.end_at,
+        timezone=event.timezone,
+        all_day=event.all_day,
+    )
+
+
+def _inclusive_all_day_end(local_end: datetime) -> date:
+    """Convert stored exclusive all-day end_at into the inclusive last calendar day."""
+    if local_end.time() == time.min:
+        return local_end.date() - timedelta(days=1)
+    return local_end.date()
+
+
+def _resolve_update_bounds(
+    event: Event,
+    *,
+    tz_name: str,
+    all_day: bool,
+    new_date_expression: str | None,
+    new_time_expression: str | None,
+    new_end_date_expression: str | None,
+    new_end_time_expression: str | None,
+    duration_minutes: int | None,
+    default_duration_minutes: int,
+) -> ResolvedInterval:
+    """Resolve update date/time patches, preserving unchanged start or end bounds."""
+    tz = ZoneInfo(tz_name)
+    local_start = event.start_at.astimezone(tz)
+    local_end = event.end_at.astimezone(tz)
+    has_start_change = bool(new_date_expression or new_time_expression)
+    has_end_change = bool(new_end_date_expression or new_end_time_expression)
+
+    if all_day:
+        start_expr = new_date_expression or local_start.date().isoformat()
+        end_expr = new_end_date_expression or _inclusive_all_day_end(local_end).isoformat()
+        return resolve_event_bounds(
+            date_expression=start_expr,
+            end_date_expression=end_expr,
+            all_day=True,
+            timezone=tz_name,
+        )
+
+    # Timed: end-only keeps the existing start clock.
+    if has_end_change and not has_start_change:
+        return resolve_event_bounds(
+            date_expression=local_start.date().isoformat(),
+            time_expression=local_start.strftime("%H:%M"),
+            end_date_expression=new_end_date_expression or local_end.date().isoformat(),
+            end_time_expression=new_end_time_expression or local_end.strftime("%H:%M"),
+            timezone=tz_name,
+        )
+
+    # Timed: start-date-only keeps local clock and duration.
+    if (
+        new_date_expression
+        and not new_time_expression
+        and not has_end_change
+    ):
+        return resolve_event_bounds(
+            date_expression=new_date_expression,
+            time_expression=local_start.strftime("%H:%M"),
+            duration_minutes=duration_minutes
+            or int((event.end_at - event.start_at).total_seconds() // 60),
+            timezone=tz_name,
+            default_duration_minutes=default_duration_minutes,
+        )
+
+    return resolve_event_bounds(
+        date_expression=new_date_expression or local_start.date().isoformat(),
+        time_expression=new_time_expression,
+        end_date_expression=new_end_date_expression,
+        end_time_expression=new_end_time_expression,
+        duration_minutes=duration_minutes
+        or int((event.end_at - event.start_at).total_seconds() // 60),
+        all_day=False,
+        timezone=tz_name,
+        default_duration_minutes=default_duration_minutes,
+    )
 
 
 _SEARCH_QUERY_NOISE = frozenset(
@@ -536,46 +653,32 @@ class Orchestrator:
         if slots.timezone:
             patch["timezone"] = slots.timezone
 
-        start_at = event.start_at
-        end_at = event.end_at
         tz_name = slots.timezone or event.timezone
+        all_day = bool(slots.all_day) if slots.all_day is not None else event.all_day
+        has_start_change = bool(slots.new_date_expression or slots.new_time_expression)
+        has_end_change = bool(slots.new_end_date_expression or slots.new_end_time_expression)
 
         if slots.relative_shift_minutes:
-            start_at, end_at = apply_relative_shift(start_at, end_at, slots.relative_shift_minutes)
+            start_at, end_at = apply_relative_shift(
+                event.start_at, event.end_at, slots.relative_shift_minutes
+            )
             patch["start_at"] = start_at
             patch["end_at"] = end_at
-        elif slots.new_date_expression or slots.new_time_expression or slots.new_end_time_expression:
+        elif has_start_change or has_end_change:
             try:
-                bounds = resolve_event_bounds(
-                    date_expression=slots.new_date_expression
-                    or event.start_at.astimezone(ZoneInfo(tz_name)).date().isoformat(),
-                    time_expression=slots.new_time_expression,
-                    end_date_expression=slots.new_end_date_expression,
-                    end_time_expression=slots.new_end_time_expression,
-                    duration_minutes=slots.duration_minutes
-                    or int((event.end_at - event.start_at).total_seconds() // 60),
-                    all_day=bool(slots.all_day) if slots.all_day is not None else event.all_day,
-                    timezone=tz_name,
+                bounds = _resolve_update_bounds(
+                    event,
+                    tz_name=tz_name,
+                    all_day=all_day,
+                    new_date_expression=slots.new_date_expression,
+                    new_time_expression=slots.new_time_expression,
+                    new_end_date_expression=slots.new_end_date_expression,
+                    new_end_time_expression=slots.new_end_time_expression,
+                    duration_minutes=slots.duration_minutes,
                     default_duration_minutes=self.settings.default_event_duration_minutes,
                 )
             except DateResolutionError as exc:
                 return self._response(state, str(exc))
-            # If only shifting date with no new time and not all-day, preserve local clock time.
-            if (
-                slots.new_date_expression
-                and not slots.new_time_expression
-                and not (slots.all_day or event.all_day)
-            ):
-                local = event.start_at.astimezone(ZoneInfo(tz_name))
-                try:
-                    bounds = resolve_event_bounds(
-                        date_expression=slots.new_date_expression,
-                        time_expression=local.strftime("%H:%M"),
-                        duration_minutes=int((event.end_at - event.start_at).total_seconds() // 60),
-                        timezone=tz_name,
-                    )
-                except DateResolutionError as exc:
-                    return self._response(state, str(exc))
             patch["start_at"] = bounds.start_at
             patch["end_at"] = bounds.end_at
             patch["all_day"] = bounds.all_day

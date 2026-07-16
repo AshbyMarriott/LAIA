@@ -145,8 +145,13 @@ class CalendarService:
         local_start = start_at.astimezone(tz) if start_at.tzinfo else start_at.replace(tzinfo=tz)
         local_end = end_at.astimezone(tz) if end_at.tzinfo else end_at.replace(tzinfo=tz)
         day_start = datetime.combine(local_start.date(), time.min, tzinfo=tz)
-        # Exclusive end-of-day boundary for the end date.
-        day_end = datetime.combine(local_end.date() + timedelta(days=1), time.min, tzinfo=tz)
+        # Exclusive next-midnight end: if already midnight after start, keep it (resolve_event_bounds
+        # and some clients pass an exclusive boundary). Otherwise treat end's calendar day as
+        # inclusive and advance to the following midnight.
+        if local_end.time() == time.min and local_end > day_start:
+            day_end = local_end
+        else:
+            day_end = datetime.combine(local_end.date() + timedelta(days=1), time.min, tzinfo=tz)
         if day_end <= day_start:
             day_end = day_start + timedelta(days=1)
         return day_start, day_end

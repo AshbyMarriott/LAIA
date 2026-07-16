@@ -65,8 +65,16 @@ GET_SLOTS_SYSTEM = """Extract get_event slots: a query and optional date_express
 UPDATE_SLOTS_SYSTEM = """Extract update_event slots.
 You may receive the current event JSON as context once the target is resolved.
 Extract a patch: new title/location/description, new date/time expressions, relative_shift_minutes, or all_day.
-Use relative_shift_minutes for phrases like "an hour later" (+60) or "30 minutes earlier" (-30).
-Do not invent fields the user did not request.
+
+Rules:
+- query: keywords to locate the event (title text). Do not put the new title here unless renaming.
+- To change ONLY the end date/time ("end on July 20", "move the end to Monday"), set
+  new_end_date_expression and/or new_end_time_expression. Leave new_date_expression and
+  new_time_expression null so the start is preserved.
+- To change ONLY the start, set new_date_expression / new_time_expression and leave end fields null.
+- To reschedule the whole span, set both start and end fields.
+- Use relative_shift_minutes for phrases like "an hour later" (+60) or "30 minutes earlier" (-30).
+- Do not invent fields the user did not request.
 """
 
 DELETE_SLOTS_SYSTEM = """Extract delete_event slots: query and optional date_expression to locate the event to delete.

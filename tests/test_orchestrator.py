@@ -471,6 +471,51 @@ async def test_update_with_relative_shift(session: AsyncSession, store: Conversa
 
 
 @pytest.mark.asyncio
+async def test_update_all_day_end_date_only(session: AsyncSession, store: ConversationStore) -> None:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from laia.orchestrator.pipeline import format_event_label
+
+    cal = CalendarService(session)
+    tz = ZoneInfo("America/Chicago")
+    event = await cal.create_event(
+        EventCreate(
+            title="Camping Trip",
+            start_at=datetime(2026, 7, 17, 0, 0, tzinfo=tz),
+            end_at=datetime(2026, 7, 24, 0, 0, tzinfo=tz),
+            timezone="America/Chicago",
+            all_day=True,
+        )
+    )
+    await session.commit()
+
+    fake = FakeOllama(
+        [
+            classify(CommandName.UPDATE_EVENT),
+            update_slots(query="Camping Trip", new_end_date_expression="July 20th"),
+            update_slots(new_end_date_expression="July 20th"),
+        ]
+    )
+    orch = Orchestrator(session, ollama=fake, store=store)  # type: ignore[arg-type]
+    response = await orch.handle(
+        message='Update the end date for the "Camping Trip" to be July 20th'
+    )
+    assert response.action is not None
+    assert response.action.command == "update_event"
+    updated = await cal.get_event(event.id)
+    assert updated.start_at.astimezone(tz).date().isoformat() == "2026-07-17"
+    assert updated.end_at.astimezone(tz).date().isoformat() == "2026-07-21"
+    assert format_event_label(
+        title=updated.title,
+        start_at=updated.start_at,
+        end_at=updated.end_at,
+        timezone=updated.timezone,
+        all_day=updated.all_day,
+    ) == "Camping Trip - July 17 – July 20 (all day)"
+
+
+@pytest.mark.asyncio
 async def test_none_command(session: AsyncSession, store: ConversationStore) -> None:
     fake = FakeOllama([classify(CommandName.NONE)])
     orch = Orchestrator(session, ollama=fake, store=store)  # type: ignore[arg-type]
