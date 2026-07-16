@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -38,6 +39,61 @@ _WEEKDAYS = {
     "saturday": 5,
     "sunday": 6,
 }
+
+_ALL_DAY_PHRASES = frozenset(
+    {
+        "all day",
+        "all-day",
+        "allday",
+        "the whole day",
+        "whole day",
+        "entire day",
+        "the entire day",
+    }
+)
+
+# Multi-day spans stuffed into one field: "07/17 through 07/20", "Friday to Monday".
+_DATE_SPAN_SPLIT = re.compile(
+    r"\s+(?:through|thru|until|til|to)\s+|\s+[–—]\s+|\s+-\s+",
+    re.IGNORECASE,
+)
+
+# Timed spans stuffed into one field: "3pm to 1pm", "15:00 - 13:00".
+_TIME_SPAN_SPLIT = re.compile(
+    r"\s+(?:to|until|til|-|–|—)\s+",
+    re.IGNORECASE,
+)
+_TIME_LIKE = re.compile(
+    r"(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?)|\bnoon\b|\bmidnight\b",
+    re.IGNORECASE,
+)
+
+
+def is_all_day_phrase(expression: str | None) -> bool:
+    """True when a follow-up or time slot clearly means an all-day event."""
+    if not expression:
+        return False
+    return expression.strip().lower() in _ALL_DAY_PHRASES
+
+
+def _split_date_span(expression: str) -> tuple[str, str] | None:
+    parts = _DATE_SPAN_SPLIT.split(expression.strip(), maxsplit=1)
+    if len(parts) != 2:
+        return None
+    start, end = parts[0].strip(), parts[1].strip()
+    if not start or not end:
+        return None
+    return start, end
+
+
+def _split_time_span(expression: str) -> tuple[str, str] | None:
+    parts = _TIME_SPAN_SPLIT.split(expression.strip(), maxsplit=1)
+    if len(parts) != 2:
+        return None
+    start, end = parts[0].strip(), parts[1].strip()
+    if not (start and end and _TIME_LIKE.search(start) and _TIME_LIKE.search(end)):
+        return None
+    return start, end
 
 
 def _try_relative_weekday(expression: str, base: datetime) -> datetime | None:
@@ -114,6 +170,20 @@ def resolve_event_bounds(
     tz = _zone(timezone)
     base = now.astimezone(tz) if now is not None else datetime.now(tz=tz)
 
+    # Models often stuff "07/17 through 07/20" or "3pm to 1pm" into one field.
+    if date_expression and not end_date_expression:
+        span = _split_date_span(date_expression)
+        if span:
+            date_expression, end_date_expression = span
+    if time_expression and not end_time_expression:
+        if is_all_day_phrase(time_expression):
+            all_day = True
+            time_expression = None
+        else:
+            span = _split_time_span(time_expression)
+            if span:
+                time_expression, end_time_expression = span
+
     if all_day:
         if not date_expression:
             raise DateResolutionError("All-day events require a date_expression")
@@ -166,6 +236,100 @@ def resolve_event_bounds(
     return ResolvedInterval(start_at=start_at, end_at=end_at, all_day=False, timezone=timezone)
 
 
+_THIS_WEEK_PHRASES = frozenset(
+    {
+        "this week",
+        "the week",
+        "current week",
+        "this current week",
+    }
+)
+_NEXT_WEEK_PHRASES = frozenset(
+    {
+        "next week",
+        "the next week",
+        "in the next week",
+        "over the next week",
+        "for the next week",
+        "coming week",
+        "the coming week",
+        "in the coming week",
+        "upcoming week",
+        "the upcoming week",
+    }
+)
+_THIS_MONTH_PHRASES = frozenset(
+    {
+        "this month",
+        "the month",
+        "current month",
+        "this current month",
+        "in this month",
+    }
+)
+_NEXT_MONTH_PHRASES = frozenset(
+    {
+        "next month",
+        "the next month",
+        "in the next month",
+        "over the next month",
+        "for the next month",
+        "coming month",
+        "the coming month",
+        "in the coming month",
+    }
+)
+
+
+def _normalize_range_phrase(expression: str) -> str:
+    return " ".join(expression.strip().lower().split())
+
+
+def _try_period_bounds(
+    expression: str,
+    *,
+    base: datetime,
+    tz: ZoneInfo,
+) -> tuple[datetime, datetime] | None:
+    """Expand week/month phrases into inclusive local bounds."""
+    text = _normalize_range_phrase(expression)
+    today = base.date()
+
+    if text in _THIS_WEEK_PHRASES:
+        monday = today - timedelta(days=today.weekday())
+        sunday = monday + timedelta(days=6)
+        return (
+            datetime.combine(monday, time.min, tzinfo=tz),
+            datetime.combine(sunday, time.max, tzinfo=tz),
+        )
+
+    if text in _NEXT_WEEK_PHRASES:
+        # Rolling week from today so "events in the next week" includes tomorrow.
+        end_day = today + timedelta(days=6)
+        return (
+            datetime.combine(today, time.min, tzinfo=tz),
+            datetime.combine(end_day, time.max, tzinfo=tz),
+        )
+
+    if text in _THIS_MONTH_PHRASES:
+        first = today.replace(day=1)
+        last = end_of_month(today)
+        return (
+            datetime.combine(first, time.min, tzinfo=tz),
+            datetime.combine(last, time.max, tzinfo=tz),
+        )
+
+    if text in _NEXT_MONTH_PHRASES:
+        first_next = (today.replace(day=1) + relativedelta(months=1))
+        last_next = end_of_month(first_next)
+        return (
+            datetime.combine(first_next, time.min, tzinfo=tz),
+            datetime.combine(last_next, time.max, tzinfo=tz),
+        )
+
+    return None
+
+
 def resolve_range(
     *,
     start_date_expression: str | None,
@@ -173,19 +337,66 @@ def resolve_range(
     timezone: str,
     now: datetime | None = None,
 ) -> tuple[datetime | None, datetime | None]:
-    """Resolve an optional search range."""
+    """Resolve an optional search range into inclusive local calendar-day bounds.
+
+    Date expressions parse to a single instant (often midnight or "now" on that day).
+    For search overlap filters, normalize start to local 00:00:00 and end to local
+    23:59:59.999999 so same-day queries like start=end="Friday" include timed events.
+
+    Week/month phrases such as "this week" / "this month" expand to a multi-day window.
+    """
     tz = _zone(timezone)
     base = now.astimezone(tz) if now is not None else datetime.now(tz=tz)
-    start = (
-        _parse_expression(start_date_expression, base=base, timezone=timezone, prefer_future=False)
+
+    start_period = (
+        _try_period_bounds(start_date_expression, base=base, tz=tz)
         if start_date_expression
         else None
     )
-    end = (
-        _parse_expression(end_date_expression, base=base, timezone=timezone, prefer_future=False)
+    end_period = (
+        _try_period_bounds(end_date_expression, base=base, tz=tz)
         if end_date_expression
         else None
     )
+
+    if start_period and end_period:
+        start, end = start_period[0], end_period[1]
+    elif start_period and not end_date_expression:
+        start, end = start_period
+    elif end_period and not start_date_expression:
+        start, end = end_period
+    elif start_period and end_date_expression:
+        end_instant = _parse_expression(
+            end_date_expression, base=base, timezone=timezone, prefer_future=False
+        )
+        start = start_period[0]
+        end = datetime.combine(end_instant.date(), time.max, tzinfo=tz)
+    elif end_period and start_date_expression:
+        start_instant = _parse_expression(
+            start_date_expression, base=base, timezone=timezone, prefer_future=False
+        )
+        start = datetime.combine(start_instant.date(), time.min, tzinfo=tz)
+        end = end_period[1]
+    else:
+        start = (
+            _parse_expression(
+                start_date_expression, base=base, timezone=timezone, prefer_future=False
+            )
+            if start_date_expression
+            else None
+        )
+        end = (
+            _parse_expression(
+                end_date_expression, base=base, timezone=timezone, prefer_future=False
+            )
+            if end_date_expression
+            else None
+        )
+        if start is not None:
+            start = datetime.combine(start.date(), time.min, tzinfo=tz)
+        if end is not None:
+            end = datetime.combine(end.date(), time.max, tzinfo=tz)
+
     if start and end and end < start:
         raise DateResolutionError("Search end must not be before start")
     return start, end

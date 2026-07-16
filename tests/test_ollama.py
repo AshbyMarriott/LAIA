@@ -17,6 +17,8 @@ async def test_structured_output_success() -> None:
         assert request.url.path == "/api/chat"
         body = json.loads(request.content)
         assert "format" in body
+        assert body.get("think") is False
+        assert body.get("options", {}).get("num_predict") == 512
         return httpx.Response(
             200,
             json={"message": {"content": json.dumps({"command": "create_event"})}},

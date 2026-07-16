@@ -130,6 +130,120 @@ async def test_create_missing_time_follow_up_without_llm(
 
 
 @pytest.mark.asyncio
+async def test_create_multi_day_all_day_follow_up(
+    session: AsyncSession, store: ConversationStore
+) -> None:
+    fake = FakeOllama(
+        [
+            classify(CommandName.CREATE_EVENT),
+            create_slots(
+                title="Camping trip",
+                date_expression="07/17 through 07/20",
+                time_expression=None,
+                all_day=False,
+                needs_clarification=True,
+                clarification_question="What time would you like to start and end?",
+            ),
+        ]
+    )
+    orch = Orchestrator(session, ollama=fake, store=store)  # type: ignore[arg-type]
+    first = await orch.handle(message="Camping trip 07/17 through 07/20")
+    assert first.pending is not None
+    assert first.pending.type == "slot_clarification"
+
+    second = await orch.handle(message="All day", conversation_id=first.conversation_id)
+    assert second.action is not None
+    assert second.action.command == "create_event"
+    assert "Camping" in second.reply
+    assert second.pending is None
+    assert fake.responses == []
+
+
+@pytest.mark.asyncio
+async def test_create_multi_day_timed_follow_up_overwrites_bad_time(
+    session: AsyncSession, store: ConversationStore
+) -> None:
+    fake = FakeOllama(
+        [
+            classify(CommandName.CREATE_EVENT),
+            create_slots(
+                title="Camping trip",
+                date_expression="07/17 through 07/20",
+                time_expression="not a real time",
+                all_day=False,
+            ),
+        ]
+    )
+    orch = Orchestrator(session, ollama=fake, store=store)  # type: ignore[arg-type]
+    first = await orch.handle(message="Camping 07/17 through 07/20 at not a real time")
+    assert first.action is None
+    assert first.pending is not None
+    assert first.pending.type == "slot_clarification"
+
+    second = await orch.handle(message="3pm to 1pm", conversation_id=first.conversation_id)
+    assert second.action is not None
+    assert second.action.command == "create_event"
+    assert second.pending is None
+    assert fake.responses == []
+
+
+@pytest.mark.asyncio
+async def test_create_slot_clarification_cancel(
+    session: AsyncSession, store: ConversationStore
+) -> None:
+    fake = FakeOllama(
+        [
+            classify(CommandName.CREATE_EVENT),
+            create_slots(
+                title="Camping trip",
+                date_expression="07/17 through 07/20",
+                time_expression=None,
+                all_day=False,
+                needs_clarification=True,
+                clarification_question="What time?",
+            ),
+        ]
+    )
+    orch = Orchestrator(session, ollama=fake, store=store)  # type: ignore[arg-type]
+    first = await orch.handle(message="Camping 07/17 through 07/20")
+    assert first.pending is not None
+
+    second = await orch.handle(message="Nevermind", conversation_id=first.conversation_id)
+    assert second.action is None
+    assert second.pending is None
+    assert "cancel" in second.reply.lower()
+    assert fake.responses == []
+
+
+@pytest.mark.asyncio
+async def test_create_multi_day_start_end_times_without_llm(
+    session: AsyncSession, store: ConversationStore
+) -> None:
+    fake = FakeOllama(
+        [
+            classify(CommandName.CREATE_EVENT),
+            create_slots(
+                title="Camping trip",
+                date_expression="07/17 through 07/20",
+                time_expression=None,
+                all_day=False,
+                needs_clarification=True,
+                clarification_question="What time?",
+            ),
+        ]
+    )
+    orch = Orchestrator(session, ollama=fake, store=store)  # type: ignore[arg-type]
+    first = await orch.handle(message="Camping 07/17 through 07/20")
+    second = await orch.handle(
+        message="3pm to 1pm",
+        conversation_id=first.conversation_id,
+    )
+    assert second.action is not None
+    assert second.action.command == "create_event"
+    assert fake.responses == []
+
+
+@pytest.mark.asyncio
 async def test_search_events(session: AsyncSession, store: ConversationStore) -> None:
     cal = CalendarService(session)
     await cal.create_event(
@@ -152,6 +266,64 @@ async def test_search_events(session: AsyncSession, store: ConversationStore) ->
     response = await orch.handle(message="Find my gym sessions")
     assert response.action is not None
     assert response.action.command == "search_events"
+    assert response.action.result["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_search_events_by_same_day_range(session: AsyncSession, store: ConversationStore) -> None:
+    cal = CalendarService(session)
+    await cal.create_event(
+        EventCreate(
+            title="Dental appt",
+            start_at=__import__("datetime").datetime(2026, 7, 14, 13, 0, tzinfo=__import__("zoneinfo").ZoneInfo("America/Chicago")),
+            end_at=__import__("datetime").datetime(2026, 7, 14, 14, 0, tzinfo=__import__("zoneinfo").ZoneInfo("America/Chicago")),
+            timezone="America/Chicago",
+        )
+    )
+    await session.commit()
+
+    fake = FakeOllama(
+        [
+            classify(CommandName.SEARCH_EVENTS),
+            search_slots(
+                start_date_expression="July 14",
+                end_date_expression="July 14",
+            ),
+        ]
+    )
+    orch = Orchestrator(session, ollama=fake, store=store)  # type: ignore[arg-type]
+    response = await orch.handle(message="What do I have on July 14?")
+    assert response.action is not None
+    assert response.action.command == "search_events"
+    assert response.action.result["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_search_events_ignores_noisy_query(session: AsyncSession, store: ConversationStore) -> None:
+    cal = CalendarService(session)
+    await cal.create_event(
+        EventCreate(
+            title="Weight training",
+            start_at=__import__("datetime").datetime(2026, 7, 14, 10, 0, tzinfo=__import__("zoneinfo").ZoneInfo("America/Chicago")),
+            end_at=__import__("datetime").datetime(2026, 7, 14, 11, 0, tzinfo=__import__("zoneinfo").ZoneInfo("America/Chicago")),
+            timezone="America/Chicago",
+        )
+    )
+    await session.commit()
+
+    fake = FakeOllama(
+        [
+            classify(CommandName.SEARCH_EVENTS),
+            search_slots(
+                query="events",
+                start_date_expression="July 14",
+                end_date_expression="July 14",
+            ),
+        ]
+    )
+    orch = Orchestrator(session, ollama=fake, store=store)  # type: ignore[arg-type]
+    response = await orch.handle(message="Show me events occurring on Tuesday 07/14/26")
+    assert response.action is not None
     assert response.action.result["total"] == 1
 
 

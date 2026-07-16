@@ -72,8 +72,14 @@ class OllamaClient:
         payload = {
             "model": model or self.model,
             "stream": False,
+            # Disable thinking for structured JSON: with think enabled, num_predict
+            # is often consumed by the reasoning trace and content comes back empty.
+            "think": False,
             "format": json_schema,
-            "options": {"temperature": temperature},
+            "options": {
+                "temperature": temperature,
+                "num_predict": 512,
+            },
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -86,9 +92,14 @@ class OllamaClient:
             raise OllamaError(f"Ollama request failed: {exc}") from exc
 
         data = response.json()
-        content = data.get("message", {}).get("content", "")
+        message = data.get("message") or {}
+        content = message.get("content") or ""
         if not content:
-            raise OllamaError("Ollama returned empty content")
+            thinking = message.get("thinking") or ""
+            detail = "Ollama returned empty content"
+            if thinking:
+                detail += " (thinking was non-empty; try think=false or raise num_predict)"
+            raise OllamaError(detail)
         try:
             return schema.model_validate_json(content)
         except ValidationError as exc:

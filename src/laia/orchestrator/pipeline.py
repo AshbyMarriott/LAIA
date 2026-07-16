@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import datetime
 from typing import Any
@@ -34,6 +35,7 @@ from laia.services.conversation import ConversationState, ConversationStore, get
 from laia.services.dates import (
     DateResolutionError,
     apply_relative_shift,
+    is_all_day_phrase,
     resolve_event_bounds,
     resolve_range,
 )
@@ -48,6 +50,110 @@ def _format_event_label(event: Event) -> str:
         return f"{event.title} - {local.date().isoformat()} (all day)"
     hour = local.strftime("%I").lstrip("0") or "12"
     return f"{event.title} - {local.strftime('%B')} {local.day}, {hour}:{local.strftime('%M %p')}"
+
+
+_SEARCH_QUERY_NOISE = frozenset(
+    {
+        "a",
+        "all",
+        "an",
+        "any",
+        "appointment",
+        "appointments",
+        "are",
+        "calendar",
+        "calendars",
+        "coming",
+        "date",
+        "day",
+        "do",
+        "event",
+        "events",
+        "find",
+        "for",
+        "from",
+        "have",
+        "i",
+        "in",
+        "is",
+        "list",
+        "me",
+        "meeting",
+        "meetings",
+        "my",
+        "next",
+        "occurring",
+        "occur",
+        "on",
+        "please",
+        "schedule",
+        "schedules",
+        "search",
+        "show",
+        "the",
+        "this",
+        "through",
+        "time",
+        "to",
+        "today",
+        "tomorrow",
+        "upcoming",
+        "week",
+        "what",
+        "whats",
+        "what's",
+    }
+)
+
+
+def _effective_search_query(query: str | None) -> str | None:
+    """Drop browse/filler text so date-only searches are not AND-filtered by noise."""
+    if query is None:
+        return None
+    tokens = [
+        token
+        for token in re.findall(r"[a-z0-9']+", query.lower())
+        if token not in _SEARCH_QUERY_NOISE
+    ]
+    if not tokens:
+        return None
+    return " ".join(tokens)
+
+
+_CANCEL_REPLIES = frozenset(
+    {
+        "cancel",
+        "cancelled",
+        "canceled",
+        "forget it",
+        "never mind",
+        "nevermind",
+        "nm",
+        "nope",
+        "stop",
+    }
+)
+
+
+def _is_cancel_reply(text: str) -> bool:
+    return text.strip().lower() in _CANCEL_REPLIES
+
+
+def _looks_like_time_reply(text: str) -> bool:
+    """True for short follow-ups that should fill time_expression."""
+    lowered = text.strip().lower()
+    if not lowered or is_all_day_phrase(lowered):
+        return False
+    if re.search(r"\b(noon|midnight)\b", lowered):
+        return True
+    if re.search(r"\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)", lowered):
+        return True
+    if re.fullmatch(r"\d{1,2}([:.]?\d{2})?", lowered):
+        return True
+    # "3pm to 1pm" / "15:00-13:00"
+    if re.search(r"\d", lowered) and re.search(r"\b(to|until|til)\b|-", lowered):
+        return True
+    return False
 
 
 def _event_to_snapshot(event: Event) -> dict[str, Any]:
@@ -293,7 +399,12 @@ class Orchestrator:
         except DateResolutionError as exc:
             return self._response(state, str(exc))
 
-        items, total = await self.calendar.search_events(query=slots.query, start=start, end=end, limit=10)
+        items, total = await self.calendar.search_events(
+            query=_effective_search_query(slots.query),
+            start=start,
+            end=end,
+            limit=10,
+        )
         if total == 0:
             return self._response(
                 state,
@@ -331,14 +442,14 @@ class Orchestrator:
                     end_date_expression=date_expression,
                     timezone=timezone or self.settings.laia_timezone,
                 )
-                # Expand single-day expression to full local day.
-                if start is not None and end is not None and start.date() == end.date():
-                    tz = ZoneInfo(timezone or self.settings.laia_timezone)
-                    start = datetime.combine(start.date(), datetime.min.time(), tzinfo=tz)
-                    end = datetime.combine(start.date(), datetime.max.time(), tzinfo=tz)
             except DateResolutionError:
                 start = end = None
-        items, _ = await self.calendar.search_events(query=query, start=start, end=end, limit=10)
+        items, _ = await self.calendar.search_events(
+            query=_effective_search_query(query),
+            start=start,
+            end=end,
+            limit=10,
+        )
         return items
 
     async def _get_event(self, state: ConversationState, message: str) -> ChatResponse:
@@ -681,6 +792,10 @@ class Orchestrator:
             prior = CreateEventSlots.model_validate(state.pending_slots or {})
             text = message.strip().strip('"').strip("'")
 
+            if _is_cancel_reply(text):
+                self.store.clear_pending(state.conversation_id)
+                return self._response(state, "Okay, I cancelled that.")
+
             # If we asked for a title, accept the reply as the title without another LLM call.
             # This keeps follow-ups working when the model is slow/unavailable.
             if not prior.title and text:
@@ -692,14 +807,27 @@ class Orchestrator:
                     CreateEventSlots.model_validate(merged),
                 )
 
-            # If we have a title/date but no time, accept a short time reply without another LLM call.
+            # All-day follow-up (do not stuff "all day" into time_expression).
+            if prior.title and prior.date_expression and text and is_all_day_phrase(text):
+                merged = prior.model_dump()
+                merged["all_day"] = True
+                merged["time_expression"] = None
+                merged["end_time_expression"] = None
+                merged["needs_clarification"] = False
+                return await self._finalize_create_from_slots(
+                    state,
+                    CreateEventSlots.model_validate(merged),
+                )
+
+            # Accept a short time reply without another LLM call. Allow overwrite when a
+            # previous bad time_expression left pending slots poisoned.
             if (
                 prior.title
                 and prior.date_expression
-                and not prior.time_expression
                 and not prior.all_day
                 and text
                 and len(text) <= 40
+                and _looks_like_time_reply(text)
             ):
                 merged = prior.model_dump()
                 merged["time_expression"] = text
@@ -722,6 +850,10 @@ class Orchestrator:
             for key, value in follow.model_dump().items():
                 if value is not None and value != "" and value is not False:
                     merged[key] = value
+            if follow.all_day:
+                merged["all_day"] = True
+                merged["time_expression"] = None
+                merged["end_time_expression"] = None
             merged["needs_clarification"] = False
             return await self._finalize_create_from_slots(
                 state,
