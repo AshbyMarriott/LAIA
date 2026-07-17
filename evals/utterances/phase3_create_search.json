@@ -1,0 +1,420 @@
+[
+  {
+    "id": "create_abs_001",
+    "category": "create_absolute",
+    "message": "Create a dentist appointment on July 14 2026 at 2pm",
+    "expected_command": "create_event",
+    "expected_title_contains": "dentist",
+    "expect_action": true
+  },
+  {
+    "id": "create_abs_002",
+    "category": "create_absolute",
+    "message": "Schedule team standup on 2026-07-15 at 9:00 AM for 30 minutes",
+    "expected_command": "create_event",
+    "expected_title_contains": "team",
+    "expect_action": true
+  },
+  {
+    "id": "create_abs_003",
+    "category": "create_absolute",
+    "message": "Add lunch with Sam on August 3rd at noon",
+    "expected_command": "create_event",
+    "expected_title_contains": "lunch",
+    "expect_action": true
+  },
+  {
+    "id": "create_abs_004",
+    "category": "create_absolute",
+    "message": "Book a haircut on September 1 2026 at 4:30pm",
+    "expected_command": "create_event",
+    "expected_title_contains": "haircut",
+    "expect_action": true
+  },
+  {
+    "id": "create_abs_005",
+    "category": "create_absolute",
+    "message": "Create an event called Project review on July 20 at 10am",
+    "expected_command": "create_event",
+    "expected_title_contains": "project",
+    "expect_action": true
+  },
+  {
+    "id": "create_abs_006",
+    "category": "create_absolute",
+    "message": "Put flight to NYC on October 12 2026 at 6:15 AM on my calendar",
+    "expected_command": "create_event",
+    "expected_title_contains": "flight",
+    "expect_action": true
+  },
+  {
+    "id": "create_abs_007",
+    "category": "create_absolute",
+    "message": "Schedule interview with Acme on November 5 at 3pm",
+    "expected_command": "create_event",
+    "expected_title_contains": "interview",
+    "expect_action": true
+  },
+  {
+    "id": "create_abs_008",
+    "category": "create_absolute",
+    "message": "Add coffee with Jordan on December 1 at 8:30am",
+    "expected_command": "create_event",
+    "expected_title_contains": "coffee",
+    "expect_action": true
+  },
+  {
+    "id": "create_abs_009",
+    "category": "create_absolute",
+    "message": "Create board meeting on July 22 2026 from 1pm to 3pm",
+    "expected_command": "create_event",
+    "expected_title_contains": "board",
+    "expect_action": true
+  },
+  {
+    "id": "create_abs_010",
+    "category": "create_absolute",
+    "message": "Schedule parent-teacher conference on March 12 2027 at 5pm",
+    "expected_command": "create_event",
+    "expected_title_contains": "parent-teacher",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_001",
+    "category": "create_relative",
+    "message": "Schedule dentist tomorrow at 2pm",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_002",
+    "category": "create_relative",
+    "message": "Create a gym session next Tuesday at 6pm",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_003",
+    "category": "create_relative",
+    "message": "Add standup this Friday at 9am",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_004",
+    "category": "create_relative",
+    "message": "Book a call next week on Monday at 11am",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_005",
+    "category": "create_relative",
+    "message": "Remind me to take medicine in two hours",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_006",
+    "category": "create_relative",
+    "message": "Schedule dinner later today at 7pm",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_007",
+    "category": "create_relative",
+    "message": "Create a planning block at the end of the month at 10am",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_008",
+    "category": "create_relative",
+    "message": "Add yoga tomorrow morning at 8am",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_009",
+    "category": "create_relative",
+    "message": "Schedule 1:1 with Alex next Thursday at 3pm",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_010",
+    "category": "create_relative",
+    "message": "Create a focus block in three days at 1pm",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_011",
+    "category": "create_relative",
+    "message": "Book dentist next Friday at 10:30am",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_012",
+    "category": "create_relative",
+    "message": "Add grocery run this Saturday at 11am",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_013",
+    "category": "create_relative",
+    "message": "Schedule oil change next Monday at 9am",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_014",
+    "category": "create_relative",
+    "message": "Create movie night tomorrow at 8pm",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_rel_015",
+    "category": "create_relative",
+    "message": "Add walking meeting Friday at 2pm",
+    "expected_command": "create_event",
+    "expect_action": true
+  },
+  {
+    "id": "create_missing_001",
+    "category": "create_missing_fields",
+    "message": "Schedule a dentist appointment next Tuesday",
+    "expected_command": "create_event",
+    "expect_action": false,
+    "expect_pending_type": "slot_clarification"
+  },
+  {
+    "id": "create_missing_002",
+    "category": "create_missing_fields",
+    "message": "Create a meeting tomorrow",
+    "expected_command": "create_event",
+    "expect_action": false,
+    "expect_pending_type": "slot_clarification"
+  },
+  {
+    "id": "create_missing_003",
+    "category": "create_missing_fields",
+    "message": "Add lunch with Pat on Friday",
+    "expected_command": "create_event",
+    "expect_action": false,
+    "expect_pending_type": "slot_clarification"
+  },
+  {
+    "id": "create_missing_004",
+    "category": "create_missing_fields",
+    "message": "Book something called Workshop next week",
+    "expected_command": "create_event",
+    "expect_action": false,
+    "expect_pending_type": "slot_clarification"
+  },
+  {
+    "id": "create_missing_005",
+    "category": "create_missing_fields",
+    "message": "Schedule an appointment on July 20",
+    "expected_command": "create_event",
+    "expect_action": false,
+    "expect_pending_type": "slot_clarification"
+  },
+  {
+    "id": "create_missing_006",
+    "category": "create_missing_fields",
+    "message": "Create event for next Monday",
+    "expected_command": "create_event",
+    "expect_action": false,
+    "expect_pending_type": "slot_clarification"
+  },
+  {
+    "id": "create_missing_007",
+    "category": "create_missing_fields",
+    "message": "Add a call with the bank tomorrow",
+    "expected_command": "create_event",
+    "expect_action": false,
+    "expect_pending_type": "slot_clarification"
+  },
+  {
+    "id": "create_missing_008",
+    "category": "create_missing_fields",
+    "message": "Put a reminder for next Wednesday",
+    "expected_command": "create_event",
+    "expect_action": false,
+    "expect_pending_type": "slot_clarification"
+  },
+  {
+    "id": "create_allday_001",
+    "category": "create_all_day",
+    "message": "Add Mom's birthday on August 1 as an all-day event",
+    "expected_command": "create_event",
+    "expect_action": true,
+    "expect_all_day": true
+  },
+  {
+    "id": "create_allday_002",
+    "category": "create_all_day",
+    "message": "Create an all-day holiday for Independence Day on July 4 2026",
+    "expected_command": "create_event",
+    "expect_action": true,
+    "expect_all_day": true
+  },
+  {
+    "id": "create_allday_003",
+    "category": "create_all_day",
+    "message": "Mark vacation day all day on September 15",
+    "expected_command": "create_event",
+    "expect_action": true,
+    "expect_all_day": true
+  },
+  {
+    "id": "create_allday_004",
+    "category": "create_all_day",
+    "message": "Add all-day company retreat on October 10",
+    "expected_command": "create_event",
+    "expect_action": true,
+    "expect_all_day": true
+  },
+  {
+    "id": "create_allday_005",
+    "category": "create_all_day",
+    "message": "Create birthday reminder for Alex on March 3 all day",
+    "expected_command": "create_event",
+    "expect_action": true,
+    "expect_all_day": true
+  },
+  {
+    "id": "create_allday_006",
+    "category": "create_all_day",
+    "message": "Put Thanksgiving on November 26 2026 as all-day",
+    "expected_command": "create_event",
+    "expect_action": true,
+    "expect_all_day": true
+  },
+  {
+    "id": "create_allday_007",
+    "category": "create_all_day",
+    "message": "Add all-day conference on June 1",
+    "expected_command": "create_event",
+    "expect_action": true,
+    "expect_all_day": true
+  },
+  {
+    "id": "create_allday_008",
+    "category": "create_all_day",
+    "message": "Create New Year's Day all-day event on January 1 2027",
+    "expected_command": "create_event",
+    "expect_action": true,
+    "expect_all_day": true
+  },
+  {
+    "id": "search_001",
+    "category": "search",
+    "message": "Find my dentist appointments",
+    "expected_command": "search_events",
+    "expect_action": true
+  },
+  {
+    "id": "search_002",
+    "category": "search",
+    "message": "Show events next week",
+    "expected_command": "search_events",
+    "expect_action": true
+  },
+  {
+    "id": "search_003",
+    "category": "search",
+    "message": "What do I have tomorrow?",
+    "expected_command": "search_events",
+    "expect_action": true
+  },
+  {
+    "id": "search_004",
+    "category": "search",
+    "message": "Search for gym sessions",
+    "expected_command": "search_events",
+    "expect_action": true
+  },
+  {
+    "id": "search_005",
+    "category": "search",
+    "message": "List meetings with Sam",
+    "expected_command": "search_events",
+    "expect_action": true
+  },
+  {
+    "id": "search_006",
+    "category": "search",
+    "message": "Show my calendar for Friday",
+    "expected_command": "search_events",
+    "expect_action": true
+  },
+  {
+    "id": "search_007",
+    "category": "search",
+    "message": "Find events titled standup",
+    "expected_command": "search_events",
+    "expect_action": true
+  },
+  {
+    "id": "search_008",
+    "category": "search",
+    "message": "What's on my schedule this weekend?",
+    "expected_command": "search_events",
+    "expect_action": true
+  },
+  {
+    "id": "search_009",
+    "category": "search",
+    "message": "Search for flight",
+    "expected_command": "search_events",
+    "expect_action": true
+  },
+  {
+    "id": "search_010",
+    "category": "search",
+    "message": "Show all events in July",
+    "expected_command": "search_events",
+    "expect_action": true
+  },
+  {
+    "id": "search_011",
+    "category": "search",
+    "message": "Find coffee meetings",
+    "expected_command": "search_events",
+    "expect_action": true
+  },
+  {
+    "id": "search_012",
+    "category": "search",
+    "message": "List my appointments next Tuesday",
+    "expected_command": "search_events",
+    "expect_action": true
+  },
+  {
+    "id": "search_013",
+    "category": "search",
+    "message": "Search calendar for interview",
+    "expected_command": "search_events",
+    "expect_action": true
+  },
+  {
+    "id": "search_014",
+    "category": "search",
+    "message": "What events do I have today?",
+    "expected_command": "search_events",
+    "expect_action": true
+  },
+  {
+    "id": "search_015",
+    "category": "search",
+    "message": "Find events at Main St",
+    "expected_command": "search_events",
+    "expect_action": true
+  }
+]

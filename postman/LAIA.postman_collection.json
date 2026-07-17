@@ -1,0 +1,131 @@
+{
+  "info": {
+    "name": "LAIA Calendar API",
+    "description": "Manual CRUD and assistant chat collection for the LAIA MVP.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8000" },
+    { "key": "apiKey", "value": "dev-api-key-change-me" },
+    { "key": "eventId", "value": "" },
+    { "key": "conversationId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/healthz"
+      }
+    },
+    {
+      "name": "Create event",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 201) {",
+              "  pm.collectionVariables.set('eventId', pm.response.json().id);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-API-Key", "value": "{{apiKey}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Dentist appointment\",\n  \"description\": \"Six-month cleaning\",\n  \"location\": \"123 Main St\",\n  \"start_at\": \"2026-07-14T14:00:00-05:00\",\n  \"end_at\": \"2026-07-14T15:00:00-05:00\",\n  \"timezone\": \"America/Chicago\",\n  \"all_day\": false\n}"
+        },
+        "url": "{{baseUrl}}/api/events"
+      }
+    },
+    {
+      "name": "Search events",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "X-API-Key", "value": "{{apiKey}}" }],
+        "url": {
+          "raw": "{{baseUrl}}/api/events?q=dentist",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "events"],
+          "query": [{ "key": "q", "value": "dentist" }]
+        }
+      }
+    },
+    {
+      "name": "Get event",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "X-API-Key", "value": "{{apiKey}}" }],
+        "url": "{{baseUrl}}/api/events/{{eventId}}"
+      }
+    },
+    {
+      "name": "Update event",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          { "key": "X-API-Key", "value": "{{apiKey}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Dentist (rescheduled)\"\n}"
+        },
+        "url": "{{baseUrl}}/api/events/{{eventId}}"
+      }
+    },
+    {
+      "name": "Delete event",
+      "request": {
+        "method": "DELETE",
+        "header": [{ "key": "X-API-Key", "value": "{{apiKey}}" }],
+        "url": "{{baseUrl}}/api/events/{{eventId}}"
+      }
+    },
+    {
+      "name": "Assistant chat",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "  pm.collectionVariables.set('conversationId', pm.response.json().conversation_id);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "X-API-Key", "value": "{{apiKey}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"conversation_id\": null,\n  \"message\": \"Create a dentist appointment next Tuesday at 2pm\"\n}"
+        },
+        "url": "{{baseUrl}}/api/assistant/chat"
+      }
+    },
+    {
+      "name": "Ollama health",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "X-API-Key", "value": "{{apiKey}}" }],
+        "url": "{{baseUrl}}/api/health/ollama"
+      }
+    }
+  ]
+}

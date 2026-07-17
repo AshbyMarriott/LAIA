@@ -44,7 +44,7 @@ htmlcov/
 *.log
 
 # Model weights and caches (large binaries)
-models/
+
 checkpoints/
 *.gguf
 *.safetensors
