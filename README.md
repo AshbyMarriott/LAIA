@@ -156,6 +156,7 @@ alembic/           Migrations
 tests/             Unit + integration tests
 evals/             Utterances + harness
 postman/           Manual API collection
+mobile/            Expo React Native client
 docker-compose.yml api + postgres + ollama
 Dockerfile.api     Runtime API image
 Dockerfile         Dev/agent image (unchanged)
@@ -179,6 +180,10 @@ Dockerfile         Dev/agent image (unchanged)
 14. Simple NL p95 ≤8s on target hardware
 15. README + Postman sufficient for a fresh local run
 
+## Mobile client
+
+An Expo React Native client lives in [`mobile/`](mobile/). It connects to the LAIA API over Tailscale/WireGuard (chat + calendar read). See [`mobile/README.md`](mobile/README.md).
+
 ## Out of scope (MVP)
 
-Mobile client, tunnels/P2P, external calendar sync, recurring events, multi-user auth, STT/TTS, filesystem tools, job queues, multi-intent execution.
+Custom tunnels/P2P, external calendar sync, recurring events, multi-user auth, STT/TTS, filesystem tools, job queues, multi-intent execution.
