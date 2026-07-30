@@ -18,7 +18,6 @@
     },
     "android": {
       "package": "local.laia.mobile",
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "backgroundColor": "#0E1412",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

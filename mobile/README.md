@@ -12,16 +12,16 @@ Expo (React Native) client for the self-hosted LAIA assistant. The phone is a th
 
 ## Prerequisites
 
-1. LAIA API running on your desktop (`docker compose up`)
-2. Phone and host on the same Tailscale/WireGuard network
-3. API reachable from the phone (VPN IP/hostname + port `8000`)
-4. Node.js 20+ and npm
+1. LAIA API running and reachable on your Tailscale/WireGuard network
+2. Phone and host on the same tailnet (for a physical device)
+3. Node.js 20+ and npm
+4. **Expo Go from the App Store** (this app targets **Expo SDK 54**, which matches the current store Expo Go)
 
-> The Compose stack binds the API to `127.0.0.1:8000` on the host. From another device you typically either:
-> - publish/bind the API on the Tailscale interface, or
-> - use a local reverse proxy / SSH tunnel / Tailscale Serve
+> The Compose stack may bind the API to `127.0.0.1:8000` on the host. From another device you typically need to publish/bind the API on the Tailscale interface (or use Tailscale Serve / a reverse proxy).
 >
-> Point the app at whatever URL actually answers `/healthz` from the phone.
+> Point the app at whatever URL actually answers `/healthz` from the phone or simulator.
+>
+> **iOS Simulator:** `http://127.0.0.1:8000` works only if the API runs on the same Mac. For a remote LAIA host, use its Tailscale IP/hostname.
 
 ## Run
 
