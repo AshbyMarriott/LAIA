@@ -102,6 +102,52 @@ async def test_create_missing_title_sets_pending_and_follow_up_creates(
 
 
 @pytest.mark.asyncio
+async def test_create_time_follow_up_not_stolen_as_title_when_title_missing(
+    session: AsyncSession, store: ConversationStore
+) -> None:
+    """Regression: LLM asks start/end with title still null; reply must not become title."""
+    fake = FakeOllama(
+        [
+            classify(CommandName.CREATE_EVENT),
+            create_slots(
+                title=None,
+                date_expression="07/17",
+                end_date_expression="07/20",
+                time_expression=None,
+                all_day=False,
+                needs_clarification=True,
+                clarification_question="What time would you like to start and end?",
+            ),
+        ]
+    )
+    orch = Orchestrator(session, ollama=fake, store=store)  # type: ignore[arg-type]
+    first = await orch.handle(message="Camping trip 07/17 through 07/20")
+    assert first.pending is not None
+    assert first.pending.type == "slot_clarification"
+    assert "start" in first.reply.lower() or "time" in first.reply.lower()
+
+    second = await orch.handle(
+        message="9am to 5pm",
+        conversation_id=first.conversation_id,
+    )
+    # Time applied; still need a title — must not create an event titled "9am to 5pm".
+    assert second.action is None
+    assert second.pending is not None
+    assert second.pending.type == "slot_clarification"
+    assert "call this event" in second.reply.lower()
+
+    third = await orch.handle(
+        message="Camping trip",
+        conversation_id=second.conversation_id,
+    )
+    assert third.action is not None
+    assert third.action.command == "create_event"
+    assert "Camping trip" in third.reply
+    assert "9am to 5pm" not in third.reply
+    assert fake.responses == []
+
+
+@pytest.mark.asyncio
 async def test_create_missing_time_follow_up_without_llm(
     session: AsyncSession, store: ConversationStore
 ) -> None:
