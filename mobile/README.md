@@ -15,7 +15,7 @@ Expo (React Native) client for the self-hosted LAIA assistant. The phone is a th
 1. LAIA API running and reachable on your Tailscale/WireGuard network
 2. Phone and host on the same tailnet (for a physical device)
 3. Node.js 20+ and npm
-4. **Expo Go from the App Store** (this app targets **Expo SDK 54**, which matches the current store Expo Go)
+4. **Expo Go from the App Store** (this app targets **Expo SDK 58**, which matches the current store Expo Go)
 
 > The Compose stack may bind the API to `127.0.0.1:8000` on the host. From another device you typically need to publish/bind the API on the Tailscale interface (or use Tailscale Serve / a reverse proxy).
 >
