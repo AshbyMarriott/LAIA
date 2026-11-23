@@ -273,6 +273,48 @@ def _looks_like_time_reply(text: str) -> bool:
     return False
 
 
+_TITLE_QUESTION_HINTS = (
+    "call this event",
+    "call it",
+    "name this",
+    "name the event",
+    "what should i call",
+    "what is the title",
+    "what's the title",
+    "event title",
+    "title for",
+)
+
+_TIME_QUESTION_HINTS = (
+    "time",
+    "start",
+    "end",
+    "when",
+    "all day",
+    "all-day",
+    "allday",
+)
+
+
+def _is_title_clarification(slots: CreateEventSlots) -> bool:
+    """True when the pending create clarification is asking for a title.
+
+    Avoid treating time answers as titles when the model asked for start/end
+    while leaving title null.
+    """
+    if slots.title:
+        return False
+    question = (slots.clarification_question or "").strip().lower()
+    if any(hint in question for hint in _TITLE_QUESTION_HINTS):
+        return True
+    if question and any(hint in question for hint in _TIME_QUESTION_HINTS):
+        return False
+    # Title is the only missing required slot (date + time/all-day already known).
+    if slots.date_expression and (slots.time_expression or slots.all_day):
+        return True
+    return False
+
+
 def _event_to_snapshot(event: Event) -> dict[str, Any]:
     return EventRead.model_validate(event).model_dump(mode="json")
 
@@ -424,11 +466,14 @@ class Orchestrator:
         slots: CreateEventSlots,
         question: str,
     ) -> ChatResponse:
+        # Persist the question we actually asked so follow-ups can tell title vs time.
+        pending_slots = slots.model_dump()
+        pending_slots["clarification_question"] = question
         self.store.set_pending(
             state.conversation_id,
             pending_type="slot_clarification",
             command=CommandName.CREATE_EVENT.value,
-            pending_slots=slots.model_dump(),
+            pending_slots=pending_slots,
         )
         return self._response(
             state,
@@ -899,34 +944,37 @@ class Orchestrator:
                 self.store.clear_pending(state.conversation_id)
                 return self._response(state, "Okay, I cancelled that.")
 
-            # If we asked for a title, accept the reply as the title without another LLM call.
-            # This keeps follow-ups working when the model is slow/unavailable.
-            if not prior.title and text:
+            # Only treat the reply as a title when we asked for a title (or title is
+            # the sole missing required slot). Do not steal time answers into title.
+            if _is_title_clarification(prior) and text:
                 merged = prior.model_dump()
                 merged["title"] = text
                 merged["needs_clarification"] = False
+                merged["clarification_question"] = None
                 return await self._finalize_create_from_slots(
                     state,
                     CreateEventSlots.model_validate(merged),
                 )
 
             # All-day follow-up (do not stuff "all day" into time_expression).
-            if prior.title and prior.date_expression and text and is_all_day_phrase(text):
+            # Title may still be missing; finalize will ask for it next.
+            if prior.date_expression and text and is_all_day_phrase(text):
                 merged = prior.model_dump()
                 merged["all_day"] = True
                 merged["time_expression"] = None
                 merged["end_time_expression"] = None
                 merged["needs_clarification"] = False
+                merged["clarification_question"] = None
                 return await self._finalize_create_from_slots(
                     state,
                     CreateEventSlots.model_validate(merged),
                 )
 
             # Accept a short time reply without another LLM call. Allow overwrite when a
-            # previous bad time_expression left pending slots poisoned.
+            # previous bad time_expression left pending slots poisoned. Title may still
+            # be missing; finalize will ask for it after times resolve.
             if (
-                prior.title
-                and prior.date_expression
+                prior.date_expression
                 and not prior.all_day
                 and text
                 and len(text) <= 40
@@ -935,6 +983,7 @@ class Orchestrator:
                 merged = prior.model_dump()
                 merged["time_expression"] = text
                 merged["needs_clarification"] = False
+                merged["clarification_question"] = None
                 return await self._finalize_create_from_slots(
                     state,
                     CreateEventSlots.model_validate(merged),
